@@ -74,6 +74,11 @@ export class RecipesService {
 
 	async addRecipeToFavorite(userId: string, recipeId: string) {
 
+		const recipe = await this.recipeModel.findById(recipeId);
+		if (!recipe) {
+			throw new BadRequestException(recipeErrors.RECIPE_NOT_FOUND_ERROR);
+		}
+
 		const favorite = await this.favoriteModel.findOne({ userId, recipeId });
 		if (favorite) {
 			throw new BadRequestException(recipeErrors.RECIPE_NO_ACCESS);

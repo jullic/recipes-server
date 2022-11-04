@@ -15,7 +15,7 @@ export class AuthService {
 	) { }
 
 	async register(dto: AuthRegisterDto) {
-		const isUser = this.usersService.findUserByEmail(dto.email);
+		const isUser = await this.usersService.findUserByEmail(dto.email);
 		if (isUser) {
 			throw new UnauthorizedException(authErrors.ALREADY_REGISTERED_ERROR);
 		}
@@ -36,7 +36,9 @@ export class AuthService {
 			throw new UnauthorizedException(authErrors.USER_NOT_FOUND_ERROR);
 		}
 
-		const isCorrectPassword = await compare(password);
+		console.log(user);
+
+		const isCorrectPassword = await compare(password, user.passwordHash);
 		if (!isCorrectPassword) {
 			throw new UnauthorizedException(authErrors.USER_NOT_FOUND_ERROR);
 		}
