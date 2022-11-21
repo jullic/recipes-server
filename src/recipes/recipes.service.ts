@@ -6,7 +6,7 @@ import { Favorite, FavoriteDocument } from './../schemas/favorite.schema';
 import { RecipeDocument } from './../schemas/recipe.schema';
 import { BadRequestException, Injectable, NotAcceptableException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import mongoose, { Model } from 'mongoose';
 import { Recipe } from 'src/schemas/recipe.schema';
 
 @Injectable()
@@ -35,7 +35,7 @@ export class RecipesService {
 			},
 			{
 				$sort: {
-					_id: 1
+					_id: -1
 				}
 			},
 			{
@@ -43,12 +43,56 @@ export class RecipesService {
 			},
 			{
 				$limit: query.limit ? Number(query.limit) : 6
-			}
+			},
+			{
+				$lookup: {
+					from: 'users',
+					localField: 'author',
+					foreignField: '_id',
+					as: 'users'
+				}
+			},
 		]).exec();
 	}
 
 	async getOneRecipe(id: string) {
-		return await this.recipeModel.findById(id).exec();
+		const recipe = await this.recipeModel.aggregate([
+			{
+				$match: { _id: new mongoose.Types.ObjectId(id) }
+			},
+			{
+				$lookup: {
+					from: 'users',
+					localField: 'author',
+					foreignField: '_id',
+					as: 'users',
+				}
+			},
+		]).exec();
+		return recipe[0];
+	}
+
+	async getPages() {
+		return Math.ceil((await this.recipeModel.find().count()) / 6) + 1;
+	}
+
+	async getUserRecipes(userId: string) {
+		let recipes = await this.recipeModel.aggregate([
+			{
+				$match: {
+					author: new mongoose.Types.ObjectId(userId),
+				}
+			},
+			{
+				$lookup: {
+					from: 'users',
+					localField: 'author',
+					foreignField: '_id',
+					as: 'users',
+				}
+			},
+		]);
+		return recipes;
 	}
 
 	async checkRecipe(userId: string, recipeId: string) {
@@ -72,9 +116,16 @@ export class RecipesService {
 		return await this.recipeModel.findByIdAndDelete(recipeId, { new: true });
 	}
 
+	async getOneFavoriteRecipe(userId: string, recipeId: string) {
+		return await this.favoriteModel.findOne({ userId, recipeId });
+	}
+
 	async addRecipeToFavorite(userId: string, recipeId: string) {
+		console.log(userId, recipeId);
 
 		const recipe = await this.recipeModel.findById(recipeId);
+		console.log(recipe);
+
 		if (!recipe) {
 			throw new BadRequestException(recipeErrors.RECIPE_NOT_FOUND_ERROR);
 		}
@@ -88,7 +139,59 @@ export class RecipesService {
 			userId,
 			recipeId
 		});
-		return await favoriteDoc.save();
+		await favoriteDoc.save();
+		const data = (await this.favoriteModel.aggregate([
+			{
+				$match: {
+					userId: new mongoose.Types.ObjectId(userId),
+					recipeId: new mongoose.Types.ObjectId(recipeId)
+				},
+			},
+			{
+				$lookup: {
+					from: 'recipes',
+					localField: 'recipeId',
+					foreignField: '_id',
+					as: 'favorites',
+				}
+			},
+			{
+				$lookup: {
+					from: 'users',
+					localField: 'userId',
+					foreignField: '_id',
+					as: 'users',
+				}
+			}
+
+		]))[0];
+		return data;
+	}
+
+	async getUserFavorites(userId: string) {
+		return await this.favoriteModel.aggregate([
+			{
+				$match: {
+					userId: new mongoose.Types.ObjectId(userId)
+				}
+			},
+			{
+				$lookup: {
+					from: 'recipes',
+					localField: 'recipeId',
+					foreignField: '_id',
+					as: 'favorites',
+				}
+			},
+			{
+				$lookup: {
+					from: 'users',
+					localField: 'userId',
+					foreignField: '_id',
+					as: 'users',
+				}
+			}
+		]).exec();
 	}
 
 	async removeRecipeFromFavorite(userId: string, recipeId: string) {
@@ -96,6 +199,6 @@ export class RecipesService {
 		if (!favorite) {
 			throw new BadRequestException(recipeErrors.RECIPE_NO_ACCESS);
 		}
-		return await this.favoriteModel.findByIdAndDelete(recipeId);
+		return await this.favoriteModel.findOneAndDelete({ recipeId, userId }).exec();
 	}
 }
